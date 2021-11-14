@@ -7,6 +7,7 @@ package web
 
 import (
 	"fmt"
+	"github.com/Team254/cheesy-arena-lite/field"
 	"github.com/Team254/cheesy-arena-lite/game"
 	"github.com/Team254/cheesy-arena-lite/model"
 	"github.com/Team254/cheesy-arena-lite/tournament"
@@ -181,7 +182,7 @@ func (web *Web) matchPlayWebsocketHandler(w http.ResponseWriter, r *http.Request
 	// Subscribe the websocket to the notifiers whose messages will be passed on to the client, in a separate goroutine.
 	go ws.HandleNotifiers(web.arena.MatchTimingNotifier, web.arena.ArenaStatusNotifier, web.arena.MatchTimeNotifier,
 		web.arena.RealtimeScoreNotifier, web.arena.AudienceDisplayModeNotifier,
-		web.arena.AllianceStationDisplayModeNotifier, web.arena.EventStatusNotifier)
+		web.arena.AllianceStationDisplayModeNotifier, web.arena.EventStatusNotifier, web.arena.FieldLightsNotifier)
 
 	// Loop, waiting for commands and responding to them, until the client closes the connection.
 	for {
@@ -221,7 +222,13 @@ func (web *Web) matchPlayWebsocketHandler(w http.ResponseWriter, r *http.Request
 				ws.WriteError(fmt.Sprintf("Invalid alliance station '%s'.", station))
 				continue
 			}
-			web.arena.AllianceStations[station].Bypass = !web.arena.AllianceStations[station].Bypass
+			if (web.arena.MatchState == field.AutoPeriod ||
+				web.arena.MatchState == field.PausePeriod ||
+				web.arena.MatchState == field.TeleopPeriod) {
+				web.arena.EstopClicked(station)
+			} else {
+				web.arena.AllianceStations[station].Bypass = !web.arena.AllianceStations[station].Bypass
+			}
 		case "startMatch":
 			args := struct {
 				MuteMatchSounds bool
@@ -300,6 +307,23 @@ func (web *Web) matchPlayWebsocketHandler(w http.ResponseWriter, r *http.Request
 			web.arena.AllianceStationDisplayMode = screen
 			web.arena.AllianceStationDisplayModeNotifier.Notify()
 			continue
+		case "setFieldLights":
+			color, ok := data.(string)
+			if !ok {
+				ws.WriteError(fmt.Sprintf("Failed to parse '%s' message.", messageType))
+				continue
+			}
+			switch color {
+			case "off":
+				web.arena.FieldLights.SetLightsOff(false)
+			case "red":
+				web.arena.FieldLights.SetLightsRed()
+			case "green":
+				web.arena.FieldLights.SetLightsGreen()
+			case "purple":
+				web.arena.FieldLights.SetLightsPurple()
+			}
+			web.arena.FieldLightsNotifier.Notify()
 		case "startTimeout":
 			durationSec, ok := data.(float64)
 			if !ok {
