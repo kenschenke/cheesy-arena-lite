@@ -7,6 +7,7 @@ package field
 
 import (
 	"fmt"
+	"github.com/Team254/cheesy-arena-lite/bracket"
 	"github.com/Team254/cheesy-arena-lite/game"
 	"github.com/Team254/cheesy-arena-lite/model"
 	"github.com/Team254/cheesy-arena-lite/network"
@@ -74,7 +75,8 @@ type Arena struct {
 	SavedMatchResult           *model.MatchResult
 	SavedRankings              game.Rankings
 	AllianceStationDisplayMode string
-	AllianceSelectionAlliances [][]model.AllianceTeam
+	AllianceSelectionAlliances []model.Alliance
+	PlayoffBracket             *bracket.Bracket
 	LowerThird                 *model.LowerThird
 	ShowLowerThird             bool
 	MuteMatchSounds            bool
@@ -172,6 +174,41 @@ func (arena *Arena) LoadSettings() error {
 	game.UpdateMatchSounds()
 	arena.MatchTimingNotifier.Notify()
 
+	// Reconstruct the playoff bracket in memory.
+	if err = arena.CreatePlayoffBracket(); err != nil {
+		return err
+	}
+	if err = arena.UpdatePlayoffBracket(nil); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Constructs an empty playoff bracket in memory, based only on the number of alliances.
+func (arena *Arena) CreatePlayoffBracket() error {
+	var err error
+	switch arena.EventSettings.ElimType {
+	case "single":
+		arena.PlayoffBracket, err = bracket.NewSingleEliminationBracket(arena.EventSettings.NumElimAlliances)
+	case "double":
+		arena.PlayoffBracket, err = bracket.NewDoubleEliminationBracket(arena.EventSettings.NumElimAlliances)
+	default:
+		err = fmt.Errorf("Invalid playoff type: %v", arena.EventSettings.ElimType)
+	}
+	return err
+}
+
+// Traverses the in-memory playoff bracket to populate alliances, create matches, and assess winners. Does nothing if
+// the bracket has not been created.are
+func (arena *Arena) UpdatePlayoffBracket(startTime *time.Time) error {
+	alliances, err := arena.Database.GetAllAlliances()
+	if err != nil {
+		return err
+	}
+	if len(alliances) > 0 {
+		return arena.PlayoffBracket.Update(arena.Database, startTime)
+	}
 	return nil
 }
 
@@ -230,7 +267,7 @@ func (arena *Arena) LoadMatch(match *model.Match) error {
 
 // Sets a new test match containing no teams as the current match.
 func (arena *Arena) LoadTestMatch() error {
-	return arena.LoadMatch(&model.Match{Type: "test"})
+	return arena.LoadMatch(&model.Match{Type: "test", DisplayName: "Test Match"})
 }
 
 // Loads the first unplayed match of the current match type.
@@ -360,6 +397,8 @@ func (arena *Arena) StartTimeout(durationSec int) error {
 	}
 
 	game.MatchTiming.TimeoutDurationSec = durationSec
+	game.UpdateMatchSounds()
+	arena.soundsPlayed = make(map[*game.MatchSound]struct{})
 	arena.MatchTimingNotifier.Notify()
 	arena.MatchState = TimeoutActive
 	arena.MatchStartTime = time.Now()
@@ -368,6 +407,25 @@ func (arena *Arena) StartTimeout(durationSec int) error {
 	arena.AllianceStationDisplayModeNotifier.Notify()
 
 	return nil
+}
+
+// Updates the audience display screen.
+func (arena *Arena) SetAudienceDisplayMode(mode string) {
+	if arena.AudienceDisplayMode != mode {
+		arena.AudienceDisplayMode = mode
+		arena.AudienceDisplayModeNotifier.Notify()
+		if mode == "score" {
+			arena.playSound("match_result")
+		}
+	}
+}
+
+// Updates the alliance station display screen.
+func (arena *Arena) SetAllianceStationDisplayMode(mode string) {
+	if arena.AllianceStationDisplayMode != mode {
+		arena.AllianceStationDisplayMode = mode
+		arena.AllianceStationDisplayModeNotifier.Notify()
+	}
 }
 
 // Returns the fractional number of seconds since the start of the match.
@@ -470,7 +528,6 @@ func (arena *Arena) Update() {
 	case TimeoutActive:
 		if matchTimeSec >= float64(game.MatchTiming.TimeoutDurationSec) {
 			arena.MatchState = PostTimeout
-			arena.playSound("end")
 			go func() {
 				// Leave the timer on the screen briefly at the end of the timeout period.
 				time.Sleep(time.Second * matchEndScoreDwellSec)
@@ -851,7 +908,7 @@ func (arena *Arena) handleEstop(station string, state bool) {
 }
 
 func (arena *Arena) handleSounds(matchTimeSec float64) {
-	if arena.MatchState == PreMatch || arena.MatchState == TimeoutActive || arena.MatchState == PostTimeout {
+	if arena.MatchState == PreMatch {
 		// Only apply this logic during a match.
 		return
 	}
@@ -861,8 +918,13 @@ func (arena *Arena) handleSounds(matchTimeSec float64) {
 			// Skip sounds with negative timestamps; they are meant to only be triggered explicitly.
 			continue
 		}
+		if sound.Timeout && !(arena.MatchState == TimeoutActive || arena.MatchState == PostTimeout) ||
+			!sound.Timeout && (arena.MatchState == TimeoutActive || arena.MatchState == PostTimeout) {
+			// Skip timeout sounds if this is a regular match, and vice versa.
+			continue
+		}
 		if _, ok := arena.soundsPlayed[sound]; !ok {
-			if matchTimeSec > sound.MatchTimeSec {
+			if matchTimeSec > sound.MatchTimeSec && matchTimeSec-sound.MatchTimeSec < 1 {
 				arena.playSound(sound.Name)
 				arena.soundsPlayed[sound] = struct{}{}
 			}

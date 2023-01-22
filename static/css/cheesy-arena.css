@@ -85,6 +85,9 @@
 .label-scoring[data-ready=true] {
   background-color: #0c6;
 }
+.label-saved-match {
+  background-color: #999;
+}
 .nowrap {
   white-space: nowrap;
 }
@@ -107,7 +110,7 @@ td[data-plc-value="true"] {
   color: #090;
 }
 .btn-game-sound {
-  width: 110px;
+  width: 160px;
   text-align: left;
 }
 input[data-changed="true"], select[data-changed="true"] {
@@ -143,4 +146,13 @@ input[data-changed="true"], select[data-changed="true"] {
 
 .scc-indicator-pushed {
   background-color: red;
+}
+
+.status-well {
+  margin-bottom: 10px;
+}
+
+#buttonBottomRow {
+  margin-top: 5px;
+  margin-bottom: 10px;
 }

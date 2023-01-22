@@ -6,9 +6,12 @@
 package web
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"github.com/Team254/cheesy-arena-lite/bracket"
 	"github.com/Team254/cheesy-arena-lite/game"
+	"github.com/Team254/cheesy-arena-lite/model"
 	"github.com/Team254/cheesy-arena-lite/tournament"
 	"github.com/gorilla/mux"
 	"github.com/jung-kurt/gofpdf"
@@ -100,26 +103,26 @@ func (web *Web) rankingsPdfReportHandler(w http.ResponseWriter, r *http.Request)
 func (web *Web) findBackupTeams(rankings game.Rankings) (game.Rankings, map[int]bool, error) {
 	var pruned game.Rankings
 
-	picks, err := web.arena.Database.GetAllAlliances()
+	alliances, err := web.arena.Database.GetAllAlliances()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if len(picks) == 0 {
+	if len(alliances) == 0 {
 		return nil, nil, errors.New("backup teams report is unavailable until alliances have been selected")
 	}
 
 	pickedTeams := make(map[int]bool)
 	pickedBackups := make(map[int]bool)
 
-	for _, alliance := range picks {
-		for _, team := range alliance {
+	for _, alliance := range alliances {
+		for i, allianceTeamId := range alliance.TeamIds {
 			// Teams in third in an alliance are backups at events that use 3 team alliances.
-			if team.PickPosition == 3 {
-				pickedBackups[team.TeamId] = true
+			if i == 3 {
+				pickedBackups[allianceTeamId] = true
 				continue
 			}
-			pickedTeams[team.TeamId] = true
+			pickedTeams[allianceTeamId] = true
 		}
 	}
 
@@ -269,7 +272,7 @@ func (web *Web) couponsPdfReportHandler(w http.ResponseWriter, r *http.Request) 
 		for i := page * 4; i < page*4+4 && i < len(alliances); i++ {
 			pdf.SetFillColor(220, 220, 220)
 
-			allianceCaptain := alliances[i][0].TeamId
+			allianceCaptain := alliances[i].TeamIds[0]
 
 			pdf.RoundedRect(cSideMargin, float64(heightAcc), cWidth, cHeight, 4, "1234", "D")
 			timeoutX := cSideMargin + (cWidth * 0.5)
@@ -585,6 +588,114 @@ func (web *Web) wpaKeysCsvReportHandler(w http.ResponseWriter, r *http.Request) 
 			handleWebErr(w, err)
 			return
 		}
+	}
+}
+
+// Generates a PDF-formatted report of the playoff alliances and the teams contained within.
+func (web *Web) alliancesPdfReportHandler(w http.ResponseWriter, r *http.Request) {
+	alliances, err := web.arena.Database.GetAllAlliances()
+	if err != nil {
+		handleWebErr(w, err)
+		return
+	}
+
+	// Traverse the bracket to register the furthest level that the alliance has achieved.
+	allianceStatuses := make(map[int]string)
+	if web.arena.PlayoffBracket.IsComplete() {
+		allianceStatuses[web.arena.PlayoffBracket.Winner()] = "Winner\n "
+		allianceStatuses[web.arena.PlayoffBracket.Finalist()] = "Finalist\n "
+	}
+	web.arena.PlayoffBracket.ReverseRoundOrderTraversal(func(matchup *bracket.Matchup) {
+		if matchup.IsComplete() {
+			if _, ok := allianceStatuses[matchup.Loser()]; !ok {
+				allianceStatuses[matchup.Loser()] = fmt.Sprintf("Eliminated in\n%s", matchup.LongDisplayName())
+			}
+		} else {
+			if matchup.RedAllianceId > 0 {
+				allianceStatuses[matchup.RedAllianceId] = fmt.Sprintf("Playing in\n%s", matchup.LongDisplayName())
+			}
+			if matchup.BlueAllianceId > 0 {
+				allianceStatuses[matchup.BlueAllianceId] = fmt.Sprintf("Playing in\n%s", matchup.LongDisplayName())
+			}
+		}
+	})
+
+	teams, err := web.arena.Database.GetAllTeams()
+	if err != nil {
+		handleWebErr(w, err)
+		return
+	}
+	teamsMap := make(map[int]model.Team, len(teams))
+	for _, team := range teams {
+		teamsMap[team.Id] = team
+	}
+
+	// The widths of the table columns in mm, stored here so that they can be referenced for each row.
+	colWidths := map[string]float64{"Alliance": 23, "Id": 12, "Name": 80, "Location": 80}
+	rowHeight := 6.5
+
+	pdf := gofpdf.New("P", "mm", "Letter", "font")
+	pdf.AddPage()
+	pdf.SetFont("Arial", "B", 10)
+	pdf.SetFillColor(220, 220, 220)
+
+	// Render table header row.
+	pdf.CellFormat(195, rowHeight, "Playoff Alliances - "+web.arena.EventSettings.Name, "", 1, "C", false, 0, "")
+	pdf.CellFormat(colWidths["Alliance"], rowHeight, "Alliance", "1", 0, "C", true, 0, "")
+	pdf.CellFormat(colWidths["Id"], rowHeight, "Team", "1", 0, "C", true, 0, "")
+	pdf.CellFormat(colWidths["Name"], rowHeight, "Name", "1", 0, "C", true, 0, "")
+	pdf.CellFormat(colWidths["Location"], rowHeight, "Location", "1", 1, "C", true, 0, "")
+	pdf.SetFont("Arial", "", 10)
+	xStart := pdf.GetX()
+	for _, alliance := range alliances {
+		yStart := pdf.GetY()
+		pdf.MultiCell(
+			colWidths["Alliance"],
+			rowHeight*float64(len(alliance.TeamIds))/5,
+			fmt.Sprintf(" \n%d\n%s\n ", alliance.Id, allianceStatuses[alliance.Id]),
+			"1",
+			"C",
+			false,
+		)
+		pdf.SetY(yStart)
+		for _, teamId := range alliance.TeamIds {
+			pdf.SetX(xStart + colWidths["Alliance"])
+			team := teamsMap[teamId]
+			pdf.CellFormat(colWidths["Id"], rowHeight, strconv.Itoa(team.Id), "1", 0, "L", false, 0, "")
+			pdf.CellFormat(colWidths["Name"], rowHeight, team.Nickname, "1", 0, "L", false, 0, "")
+			location := fmt.Sprintf("%s, %s, %s", team.City, team.StateProv, team.Country)
+			pdf.CellFormat(colWidths["Location"], rowHeight, location, "1", 1, "L", false, 0, "")
+		}
+	}
+
+	// Write out the PDF file as the HTTP response.
+	w.Header().Set("Content-Type", "application/pdf")
+	err = pdf.Output(w)
+	if err != nil {
+		handleWebErr(w, err)
+		return
+	}
+}
+
+// Generates a PDF-formatted report of the playoff bracket, relying on the browser to convert SVG to PDF (since no
+// suitable Go library for doing so appears to exist).
+func (web *Web) bracketPdfReportHandler(w http.ResponseWriter, r *http.Request) {
+	buffer := new(bytes.Buffer)
+	err := web.generateBracketSvg(buffer, nil, false)
+	if err != nil {
+		handleWebErr(w, err)
+		return
+	}
+
+	template, err := web.parseFiles("templates/bracket_report.html")
+	if err != nil {
+		handleWebErr(w, err)
+		return
+	}
+	err = template.ExecuteTemplate(w, "bracket_report.html", buffer.String())
+	if err != nil {
+		handleWebErr(w, err)
+		return
 	}
 }
 

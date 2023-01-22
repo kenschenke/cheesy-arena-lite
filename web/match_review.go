@@ -8,6 +8,7 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/Team254/cheesy-arena-lite/game"
 	"github.com/Team254/cheesy-arena-lite/model"
 	"github.com/gorilla/mux"
 	"net/http"
@@ -23,6 +24,7 @@ type MatchReviewListItem struct {
 	RedScore    int
 	BlueScore   int
 	ColorClass  string
+	IsComplete  bool
 }
 
 // Shows the match review interface.
@@ -193,14 +195,18 @@ func (web *Web) buildMatchReviewList(matchType string) ([]MatchReviewListItem, e
 			matchReviewList[i].BlueScore = matchResult.BlueScoreSummary().Score
 		}
 		switch match.Status {
-		case model.RedWonMatch:
+		case game.RedWonMatch:
 			matchReviewList[i].ColorClass = "danger"
-		case model.BlueWonMatch:
+			matchReviewList[i].IsComplete = true
+		case game.BlueWonMatch:
 			matchReviewList[i].ColorClass = "info"
-		case model.TieMatch:
+			matchReviewList[i].IsComplete = true
+		case game.TieMatch:
 			matchReviewList[i].ColorClass = "warning"
+			matchReviewList[i].IsComplete = true
 		default:
 			matchReviewList[i].ColorClass = ""
+			matchReviewList[i].IsComplete = false
 		}
 	}
 

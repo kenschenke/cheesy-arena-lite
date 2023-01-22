@@ -9,6 +9,7 @@ import (
 	"github.com/Team254/cheesy-arena-lite/field"
 	"github.com/Team254/cheesy-arena-lite/game"
 	"github.com/Team254/cheesy-arena-lite/model"
+	"github.com/Team254/cheesy-arena-lite/tournament"
 	"github.com/Team254/cheesy-arena-lite/websocket"
 	gorillawebsocket "github.com/gorilla/websocket"
 	"github.com/mitchellh/mapstructure"
@@ -21,10 +22,10 @@ import (
 func TestMatchPlay(t *testing.T) {
 	web := setupTestWeb(t)
 
-	match1 := model.Match{Type: "practice", DisplayName: "1", Status: model.RedWonMatch}
+	match1 := model.Match{Type: "practice", DisplayName: "1", Status: game.RedWonMatch}
 	match2 := model.Match{Type: "practice", DisplayName: "2"}
-	match3 := model.Match{Type: "qualification", DisplayName: "1", Status: model.BlueWonMatch}
-	match4 := model.Match{Type: "elimination", DisplayName: "SF1-1", Status: model.TieMatch}
+	match3 := model.Match{Type: "qualification", DisplayName: "1", Status: game.BlueWonMatch}
+	match4 := model.Match{Type: "elimination", DisplayName: "SF1-1", Status: game.TieMatch}
 	match5 := model.Match{Type: "elimination", DisplayName: "SF1-2"}
 	web.arena.Database.CreateMatch(&match1)
 	web.arena.Database.CreateMatch(&match2)
@@ -44,6 +45,8 @@ func TestMatchPlay(t *testing.T) {
 
 func TestMatchPlayLoad(t *testing.T) {
 	web := setupTestWeb(t)
+	tournament.CreateTestAlliances(web.arena.Database, 8)
+	web.arena.CreatePlayoffBracket()
 
 	web.arena.Database.CreateTeam(&model.Team{Id: 101})
 	web.arena.Database.CreateTeam(&model.Team{Id: 102})
@@ -51,7 +54,7 @@ func TestMatchPlayLoad(t *testing.T) {
 	web.arena.Database.CreateTeam(&model.Team{Id: 104})
 	web.arena.Database.CreateTeam(&model.Team{Id: 105})
 	web.arena.Database.CreateTeam(&model.Team{Id: 106})
-	match := model.Match{Type: "elimination", DisplayName: "QF4-3", Status: model.RedWonMatch, Red1: 101,
+	match := model.Match{Type: "elimination", DisplayName: "QF4-3", Status: game.RedWonMatch, Red1: 101,
 		Red2: 102, Red3: 103, Blue1: 104, Blue2: 105, Blue3: 106}
 	web.arena.Database.CreateMatch(&match)
 	recorder := web.getHttpResponse("/match_play")
@@ -88,13 +91,13 @@ func TestMatchPlayLoad(t *testing.T) {
 	assert.NotContains(t, recorder.Body.String(), "106")
 }
 
-func TestMatchPlayShowResult(t *testing.T) {
+func TestMatchPlayShowAndClearResult(t *testing.T) {
 	web := setupTestWeb(t)
 
 	recorder := web.getHttpResponse("/match_play/1/show_result")
 	assert.Equal(t, 500, recorder.Code)
 	assert.Contains(t, recorder.Body.String(), "Invalid match")
-	match := model.Match{Type: "qualification", DisplayName: "1", Status: model.TieMatch}
+	match := model.Match{Type: "qualification", DisplayName: "1", Status: game.TieMatch}
 	web.arena.Database.CreateMatch(&match)
 	recorder = web.getHttpResponse(fmt.Sprintf("/match_play/%d/show_result", match.Id))
 	assert.Equal(t, 500, recorder.Code)
@@ -104,6 +107,11 @@ func TestMatchPlayShowResult(t *testing.T) {
 	assert.Equal(t, 303, recorder.Code)
 	assert.Equal(t, match.Id, web.arena.SavedMatch.Id)
 	assert.Equal(t, match.Id, web.arena.SavedMatchResult.MatchId)
+
+	recorder = web.getHttpResponse("/match_play/clear_result")
+	assert.Equal(t, 303, recorder.Code)
+	assert.Equal(t, model.Match{}, *web.arena.SavedMatch)
+	assert.Equal(t, *model.NewMatchResult(), *web.arena.SavedMatchResult)
 }
 
 func TestMatchPlayErrors(t *testing.T) {
@@ -136,7 +144,7 @@ func TestCommitMatch(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, 1, matchResult.PlayNumber)
 	match, _ = web.arena.Database.GetMatchById(1)
-	assert.Equal(t, model.BlueWonMatch, match.Status)
+	assert.Equal(t, game.BlueWonMatch, match.Status)
 
 	matchResult = model.NewMatchResult()
 	matchResult.MatchId = match.Id
@@ -145,7 +153,7 @@ func TestCommitMatch(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, 2, matchResult.PlayNumber)
 	match, _ = web.arena.Database.GetMatchById(1)
-	assert.Equal(t, model.RedWonMatch, match.Status)
+	assert.Equal(t, game.RedWonMatch, match.Status)
 
 	matchResult = model.NewMatchResult()
 	matchResult.MatchId = match.Id
@@ -153,7 +161,7 @@ func TestCommitMatch(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, 3, matchResult.PlayNumber)
 	match, _ = web.arena.Database.GetMatchById(1)
-	assert.Equal(t, model.TieMatch, match.Status)
+	assert.Equal(t, game.TieMatch, match.Status)
 
 	// Verify TBA publishing by checking the log for the expected failure messages.
 	web.arena.TbaClient.BaseUrl = "fakeUrl"
@@ -180,12 +188,17 @@ func TestCommitEliminationTie(t *testing.T) {
 	err := web.commitMatchScore(match, matchResult, true)
 	assert.Nil(t, err)
 	match, _ = web.arena.Database.GetMatchById(1)
-	assert.Equal(t, model.TieMatch, match.Status)
+	assert.Equal(t, game.TieMatch, match.Status)
+
+	tournament.CreateTestAlliances(web.arena.Database, 2)
+	web.arena.CreatePlayoffBracket()
 	match.Type = "elimination"
+	match.ElimRedAlliance = 1
+	match.ElimBlueAlliance = 2
 	web.arena.Database.UpdateMatch(match)
 	web.commitMatchScore(match, matchResult, true)
 	match, _ = web.arena.Database.GetMatchById(1)
-	assert.Equal(t, model.TieMatch, match.Status) // No elimination tiebreakers.
+	assert.Equal(t, game.TieMatch, match.Status)
 }
 
 func TestMatchPlayWebsocketCommands(t *testing.T) {

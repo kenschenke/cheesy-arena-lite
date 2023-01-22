@@ -56,13 +56,17 @@
   </div>
   <div class="col-lg-8">
     <div class="row text-center">
-      <div id="matchState" class="col-lg-2 col-lg-offset-2 well well-sm text-center">&nbsp;</div>
+      <div class="col-lg-3 well well-sm text-center" style="text-transform: uppercase;">
+        {{if eq .Match.Type "elimination"}}playoff{{else}}{{.Match.Type}}{{end}}
+        {{if ne .Match.Type "test" }}{{.Match.DisplayName}}{{end}}
+      </div>
+      <div id="matchState" class="col-lg-3 well well-sm text-center">&nbsp;</div>
       <div id="matchTime" class="col-lg-2 well well-sm text-center">&nbsp;</div>
       <div id="redScore" class="col-lg-2 well well-sm well-red text-center">&nbsp;</div>
       <div id="blueScore" class="col-lg-2 well well-sm well-blue text-center">&nbsp;</div>
     </div>
     <div class="row text-center">
-      <div class="col-lg-6 well well-darkblue">
+      <div class="col-lg-6 well well-darkblue status-well">
         <div class="row form-group">
           <div class="col-lg-4">Blue Teams</div>
           <div class="col-lg-2" data-toggle="tooltip" title="Driver Station">DS</div>
@@ -73,8 +77,16 @@
         {{template "matchPlayTeam" dict "team" .Match.Blue1 "color" "B" "position" 1 "data" .}}
         {{template "matchPlayTeam" dict "team" .Match.Blue2 "color" "B" "position" 2 "data" .}}
         {{template "matchPlayTeam" dict "team" .Match.Blue3 "color" "B" "position" 3 "data" .}}
+        {{if eq .Match.Type "elimination" }}
+          <div>
+            <b>Alliance {{.Match.ElimBlueAlliance}}</b>
+            {{if .BlueOffFieldTeams}}
+              (not on field: {{range $i, $team := .BlueOffFieldTeams}}{{if $i}}, {{end}}{{$team}}{{end}})
+            {{end}}
+          </div>
+        {{end}}
       </div>
-      <div class="col-lg-6 well well-darkred">
+      <div class="col-lg-6 well well-darkred status-well">
         <div class="row form-group">
           <div class="col-lg-4">Red Teams</div>
           <div class="col-lg-2" data-toggle="tooltip" title="Driver Station">DS</div>
@@ -85,6 +97,14 @@
         {{template "matchPlayTeam" dict "team" .Match.Red3 "color" "R" "position" 3 "data" .}}
         {{template "matchPlayTeam" dict "team" .Match.Red2 "color" "R" "position" 2 "data" .}}
         {{template "matchPlayTeam" dict "team" .Match.Red1 "color" "R" "position" 1 "data" .}}
+        {{if eq .Match.Type "elimination" }}
+        <div>
+          <b>Alliance {{.Match.ElimRedAlliance}}</b>
+          {{if .RedOffFieldTeams}}
+            (not on field: {{range $i, $team := .RedOffFieldTeams}}{{if $i}}, {{end}}{{$team}}{{end}})
+          {{end}}
+        </div>
+        {{end}}
       </div>
     </div>
     <div class="row text-center">
@@ -96,6 +116,16 @@
           onclick="abortMatch();" disabled>
         Abort Match
       </button>
+      <button type="button" id="signalVolunteers" class="btn btn-warning btn-lg btn-match-play"
+          onclick="signalVolunteers();" disabled>
+        Signal Volunteers
+      </button>
+      <button type="button" id="signalReset" class="btn btn-success btn-lg btn-match-play"
+          onclick="signalReset();" disabled>
+        Signal Reset
+      </button>
+    </div>
+    <div id="buttonBottomRow" class="row text-center">
       <button type="button" id="commitResults" class="btn btn-info btn-lg btn-match-play"
           onclick="confirmCommit({{.IsReplay}});" disabled>
         Commit Results
@@ -218,6 +248,18 @@
             <div class="radio">
               <label>
                 <input type="radio" name="audienceDisplay" value="logo" onclick="setAudienceDisplay();">Logo
+                <input type="radio" name="audienceDisplay" value="bracket" onclick="setAudienceDisplay();">Bracket
+              </label>
+            </div>
+            <div class="radio">
+              <label>
+                <input type="radio" name="audienceDisplay" value="logo" onclick="setAudienceDisplay();">Logo With BG
+              </label>
+            </div>
+            <div class="radio">
+              <label>
+                <input type="radio" name="audienceDisplay" value="logoLuma" onclick="setAudienceDisplay();">
+                Logo Without BG
               </label>
             </div>
             <div class="radio">
@@ -266,6 +308,14 @@
               </label>
             </div>
           </div>
+          <p>Shown Match Result</p>
+          <span class="label label-saved-match">
+            {{if .SavedMatch.DisplayName}}{{.SavedMatchType}} {{.SavedMatch.DisplayName}}{{else}}None{{end}}
+          </span>
+          &nbsp;
+          <a href="/match_play/clear_result">
+            <b class="btn btn-info btn-xs">Clear</b>
+          </a>
         </div>
         <div class="col-lg-3">
           <p>Match Sounds</p>
@@ -276,7 +326,7 @@
             </label>
           </div>
           <p>Timeout</p>
-          <input type="text" id="timeoutDuration" size="4" value="6:00" />
+          <input type="text" id="timeoutDuration" size="4" value="8:00" />
           <button type="button" id="startTimeout" class="btn btn-info btn-xs" onclick="startTimeout();">
             Start
           </button>
@@ -298,6 +348,11 @@
               <input type="radio" name="fieldLights" value="green" onclick="setFieldLights();"/>Reset (Green)
             </label>
           </div>
+          {{if eq .Match.Type "test" }}
+            <br /><br />
+            <p>Match Name</p>
+            <input type="text" id="testMatchName" value="{{.Match.DisplayName}}" onblur="setTestMatchName();" />
+          {{end}}
         </div>
       </div>
       <div class="row">

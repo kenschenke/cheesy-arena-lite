@@ -27,7 +27,7 @@ func TestSetupSettings(t *testing.T) {
 	assert.NotContains(t, recorder.Body.String(), "tbaPublishingEnabled\" checked")
 
 	// Change the settings and check the response.
-	recorder = web.postHttpResponse("/setup/settings", "name=Chezy Champs&code=CC&numElimAlliances=16&"+
+	recorder = web.postHttpResponse("/setup/settings", "name=Chezy Champs&code=CC&elimType=single&numElimAlliances=16&"+
 		"tbaPublishingEnabled=on&tbaEventCode=2014cc&tbaSecretId=secretId&tbaSecret=tbasec")
 	assert.Equal(t, 303, recorder.Code)
 	recorder = web.getHttpResponse("/setup/settings")
@@ -37,6 +37,15 @@ func TestSetupSettings(t *testing.T) {
 	assert.Contains(t, recorder.Body.String(), "2014cc")
 	assert.Contains(t, recorder.Body.String(), "secretId")
 	assert.Contains(t, recorder.Body.String(), "tbasec")
+}
+
+func TestSetupSettingsDoubleElimination(t *testing.T) {
+	web := setupTestWeb(t)
+
+	recorder := web.postHttpResponse("/setup/settings", "elimType=double&numElimAlliances=3")
+	assert.Equal(t, 303, recorder.Code)
+	assert.Equal(t, "double", web.arena.EventSettings.ElimType)
+	assert.Equal(t, 8, web.arena.EventSettings.NumElimAlliances)
 }
 
 func TestSetupSettingsInvalidValues(t *testing.T) {
@@ -54,7 +63,7 @@ func TestSetupSettingsClearDb(t *testing.T) {
 	assert.Nil(t, web.arena.Database.CreateMatch(&model.Match{Type: "qualification"}))
 	assert.Nil(t, web.arena.Database.CreateMatchResult(new(model.MatchResult)))
 	assert.Nil(t, web.arena.Database.CreateRanking(&game.Ranking{TeamId: 254}))
-	assert.Nil(t, web.arena.Database.CreateAllianceTeam(new(model.AllianceTeam)))
+	assert.Nil(t, web.arena.Database.CreateAlliance(&model.Alliance{Id: 1}))
 	recorder := web.postHttpResponse("/setup/db/clear", "")
 	assert.Equal(t, 303, recorder.Code)
 
@@ -68,6 +77,7 @@ func TestSetupSettingsClearDb(t *testing.T) {
 	assert.Empty(t, rankings)
 	alliances, _ := web.arena.Database.GetAllAlliances()
 	assert.Empty(t, alliances)
+	assert.Empty(t, web.arena.AllianceSelectionAlliances)
 }
 
 func TestSetupSettingsBackupRestoreDb(t *testing.T) {

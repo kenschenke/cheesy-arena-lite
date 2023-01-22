@@ -6,7 +6,7 @@
 package model
 
 import (
-	"fmt"
+	"github.com/Team254/cheesy-arena-lite/game"
 	"sort"
 	"strings"
 	"time"
@@ -36,28 +36,15 @@ type Match struct {
 	Blue3IsSurrogate bool
 	StartedAt        time.Time
 	ScoreCommittedAt time.Time
-	Status           MatchStatus
+	Status           game.MatchStatus
 }
-
-type MatchStatus string
-
-const (
-	RedWonMatch    MatchStatus = "R"
-	BlueWonMatch   MatchStatus = "B"
-	TieMatch       MatchStatus = "T"
-	MatchNotPlayed MatchStatus = ""
-)
-
-var ElimRoundNames = map[int]string{1: "F", 2: "SF", 4: "QF", 8: "EF"}
 
 func (database *Database) CreateMatch(match *Match) error {
 	return database.matchTable.create(match)
 }
 
 func (database *Database) GetMatchById(id int) (*Match, error) {
-	var match *Match
-	err := database.matchTable.getById(id, &match)
-	return match, err
+	return database.matchTable.getById(id)
 }
 
 func (database *Database) UpdateMatch(match *Match) error {
@@ -73,8 +60,8 @@ func (database *Database) TruncateMatches() error {
 }
 
 func (database *Database) GetMatchByName(matchType string, displayName string) (*Match, error) {
-	var matches []Match
-	if err := database.matchTable.getAll(&matches); err != nil {
+	matches, err := database.matchTable.getAll()
+	if err != nil {
 		return nil, err
 	}
 
@@ -102,8 +89,8 @@ func (database *Database) GetMatchesByElimRoundGroup(round int, group int) ([]Ma
 }
 
 func (database *Database) GetMatchesByType(matchType string) ([]Match, error) {
-	var matches []Match
-	if err := database.matchTable.getAll(&matches); err != nil {
+	matches, err := database.matchTable.getAll()
+	if err != nil {
 		return nil, err
 	}
 
@@ -124,17 +111,17 @@ func (database *Database) GetMatchesByType(matchType string) ([]Match, error) {
 			}
 			return matchingMatches[i].ElimInstance < matchingMatches[j].ElimInstance
 		}
-		return matchingMatches[i].ElimRound > matchingMatches[j].ElimRound
+		return matchingMatches[i].ElimRound < matchingMatches[j].ElimRound
 	})
 	return matchingMatches, nil
 }
 
 func (match *Match) IsComplete() bool {
-	return match.Status != MatchNotPlayed
+	return match.Status != game.MatchNotPlayed
 }
 
 func (match *Match) CapitalizedType() string {
-	if match.Type == "" {
+	if match.Type == "" || match.Type == "test" {
 		return ""
 	} else if match.Type == "elimination" {
 		return "Playoff"
@@ -147,16 +134,6 @@ func (match *Match) TypePrefix() string {
 		return "P"
 	} else if match.Type == "qualification" {
 		return "Q"
-	}
-	return ""
-}
-
-func (match *Match) TbaCode() string {
-	if match.Type == "qualification" {
-		return fmt.Sprintf("qm%s", match.DisplayName)
-	} else if match.Type == "elimination" {
-		return fmt.Sprintf("%s%dm%d", strings.ToLower(ElimRoundNames[match.ElimRound]), match.ElimGroup,
-			match.ElimInstance)
 	}
 	return ""
 }

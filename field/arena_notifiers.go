@@ -6,7 +6,7 @@
 package field
 
 import (
-	"fmt"
+	"github.com/Team254/cheesy-arena-lite/bracket"
 	"github.com/Team254/cheesy-arena-lite/game"
 	"github.com/Team254/cheesy-arena-lite/model"
 	"github.com/Team254/cheesy-arena-lite/network"
@@ -152,12 +152,39 @@ func (arena *Arena) generateMatchLoadMessage() interface{} {
 		}
 	}
 
+	var matchup *bracket.Matchup
+	redOffFieldTeams := []*model.Team{}
+	blueOffFieldTeams := []*model.Team{}
+	if arena.CurrentMatch.Type == "elimination" {
+		matchup, _ = arena.PlayoffBracket.GetMatchup(arena.CurrentMatch.ElimRound, arena.CurrentMatch.ElimGroup)
+		redOffFieldTeamIds, blueOffFieldTeamIds, _ := arena.Database.GetOffFieldTeamIds(arena.CurrentMatch)
+		for _, teamId := range redOffFieldTeamIds {
+			team, _ := arena.Database.GetTeamById(teamId)
+			redOffFieldTeams = append(redOffFieldTeams, team)
+		}
+		for _, teamId := range blueOffFieldTeamIds {
+			team, _ := arena.Database.GetTeamById(teamId)
+			blueOffFieldTeams = append(blueOffFieldTeams, team)
+		}
+	}
+
 	return &struct {
-		MatchType string
-		Match     *model.Match
-		Teams     map[string]*model.Team
-		Rankings  map[string]*game.Ranking
-	}{arena.CurrentMatch.CapitalizedType(), arena.CurrentMatch, teams, rankings}
+		MatchType         string
+		Match             *model.Match
+		Teams             map[string]*model.Team
+		Rankings          map[string]*game.Ranking
+		Matchup           *bracket.Matchup
+		RedOffFieldTeams  []*model.Team
+		BlueOffFieldTeams []*model.Team
+	}{
+		arena.CurrentMatch.CapitalizedType(),
+		arena.CurrentMatch,
+		teams,
+		rankings,
+		matchup,
+		redOffFieldTeams,
+		blueOffFieldTeams,
+	}
 }
 
 func (arena *Arena) generateMatchTimeMessage() interface{} {
@@ -187,32 +214,10 @@ func (arena *Arena) generateSCCStatusMessage() interface{} {
 func (arena *Arena) generateScorePostedMessage() interface{} {
 	// For elimination matches, summarize the state of the series.
 	var seriesStatus, seriesLeader string
+	var matchup *bracket.Matchup
 	if arena.SavedMatch.Type == "elimination" {
-		matches, _ := arena.Database.GetMatchesByElimRoundGroup(arena.SavedMatch.ElimRound, arena.SavedMatch.ElimGroup)
-		var redWins, blueWins int
-		for _, match := range matches {
-			if match.Status == model.RedWonMatch {
-				redWins++
-			} else if match.Status == model.BlueWonMatch {
-				blueWins++
-			}
-		}
-
-		if redWins == 2 {
-			seriesStatus = fmt.Sprintf("Red Wins Series %d-%d", redWins, blueWins)
-			seriesLeader = "red"
-		} else if blueWins == 2 {
-			seriesStatus = fmt.Sprintf("Blue Wins Series %d-%d", blueWins, redWins)
-			seriesLeader = "blue"
-		} else if redWins > blueWins {
-			seriesStatus = fmt.Sprintf("Red Leads Series %d-%d", redWins, blueWins)
-			seriesLeader = "red"
-		} else if blueWins > redWins {
-			seriesStatus = fmt.Sprintf("Blue Leads Series %d-%d", blueWins, redWins)
-			seriesLeader = "blue"
-		} else {
-			seriesStatus = fmt.Sprintf("Series Tied %d-%d", redWins, blueWins)
-		}
+		matchup, _ = arena.PlayoffBracket.GetMatchup(arena.SavedMatch.ElimRound, arena.SavedMatch.ElimGroup)
+		seriesLeader, seriesStatus = matchup.StatusText()
 	}
 
 	rankings := make(map[int]game.Ranking, len(arena.SavedRankings))
@@ -228,9 +233,15 @@ func (arena *Arena) generateScorePostedMessage() interface{} {
 		Rankings         map[int]game.Ranking
 		SeriesStatus     string
 		SeriesLeader     string
-	}{arena.SavedMatch.CapitalizedType(), arena.SavedMatch, arena.SavedMatchResult.RedScoreSummary(),
-		arena.SavedMatchResult.BlueScoreSummary(), rankings,
-		seriesStatus, seriesLeader}
+	}{
+		arena.SavedMatch.CapitalizedType(),
+		arena.SavedMatch,
+		arena.SavedMatchResult.RedScoreSummary(),
+		arena.SavedMatchResult.BlueScoreSummary(),
+		rankings,
+		seriesStatus,
+		seriesLeader,
+	}
 }
 
 func (arena *Arena) generateFieldLightsMessage() interface{} {

@@ -6,6 +6,7 @@ package field
 import (
 	"github.com/Team254/cheesy-arena-lite/game"
 	"github.com/Team254/cheesy-arena-lite/model"
+	"github.com/Team254/cheesy-arena-lite/tournament"
 	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
@@ -377,12 +378,12 @@ func TestLoadNextMatch(t *testing.T) {
 
 	arena.Database.CreateTeam(&model.Team{Id: 1114})
 	practiceMatch1 := model.Match{Type: "practice", DisplayName: "1"}
-	practiceMatch2 := model.Match{Type: "practice", DisplayName: "2", Status: model.RedWonMatch}
+	practiceMatch2 := model.Match{Type: "practice", DisplayName: "2", Status: game.RedWonMatch}
 	practiceMatch3 := model.Match{Type: "practice", DisplayName: "3"}
 	arena.Database.CreateMatch(&practiceMatch1)
 	arena.Database.CreateMatch(&practiceMatch2)
 	arena.Database.CreateMatch(&practiceMatch3)
-	qualificationMatch1 := model.Match{Type: "qualification", DisplayName: "1", Status: model.BlueWonMatch}
+	qualificationMatch1 := model.Match{Type: "qualification", DisplayName: "1", Status: game.BlueWonMatch}
 	qualificationMatch2 := model.Match{Type: "qualification", DisplayName: "2"}
 	arena.Database.CreateMatch(&qualificationMatch1)
 	arena.Database.CreateMatch(&qualificationMatch2)
@@ -391,7 +392,7 @@ func TestLoadNextMatch(t *testing.T) {
 	assert.Equal(t, 0, arena.CurrentMatch.Id)
 	err := arena.SubstituteTeam(1114, "R1")
 	assert.Nil(t, err)
-	arena.CurrentMatch.Status = model.TieMatch
+	arena.CurrentMatch.Status = game.TieMatch
 	err = arena.LoadNextMatch()
 	assert.Nil(t, err)
 	assert.Equal(t, 0, arena.CurrentMatch.Id)
@@ -404,12 +405,12 @@ func TestLoadNextMatch(t *testing.T) {
 	err = arena.LoadNextMatch()
 	assert.Nil(t, err)
 	assert.Equal(t, practiceMatch1.Id, arena.CurrentMatch.Id)
-	practiceMatch1.Status = model.RedWonMatch
+	practiceMatch1.Status = game.RedWonMatch
 	arena.Database.UpdateMatch(&practiceMatch1)
 	err = arena.LoadNextMatch()
 	assert.Nil(t, err)
 	assert.Equal(t, practiceMatch3.Id, arena.CurrentMatch.Id)
-	practiceMatch3.Status = model.BlueWonMatch
+	practiceMatch3.Status = game.BlueWonMatch
 	arena.Database.UpdateMatch(&practiceMatch3)
 	err = arena.LoadNextMatch()
 	assert.Nil(t, err)
@@ -425,6 +426,8 @@ func TestLoadNextMatch(t *testing.T) {
 
 func TestSubstituteTeam(t *testing.T) {
 	arena := setupTestArena(t)
+	tournament.CreateTestAlliances(arena.Database, 2)
+	arena.CreatePlayoffBracket()
 
 	arena.Database.CreateTeam(&model.Team{Id: 101})
 	arena.Database.CreateTeam(&model.Team{Id: 102})

@@ -13,6 +13,7 @@ import (
 	"github.com/Team254/cheesy-arena-lite/partner"
 	"github.com/Team254/cheesy-arena-lite/websocket"
 	"github.com/gorilla/mux"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -32,6 +33,20 @@ type MatchWithResult struct {
 type RankingWithNickname struct {
 	game.Ranking
 	Nickname string
+}
+
+type allianceMatchup struct {
+	Round              int
+	Group              int
+	DisplayName        string
+	RedAllianceSource  string
+	BlueAllianceSource string
+	RedAlliance        *model.Alliance
+	BlueAlliance       *model.Alliance
+	IsActive           bool
+	SeriesLeader       string
+	SeriesStatus       string
+	IsComplete         bool
 }
 
 // Generates a JSON dump of the matches and results.
@@ -100,7 +115,7 @@ func (web *Web) sponsorSlidesApiHandler(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-// Generates a JSON dump of the qualification rankings, primarily for use by the pit display.
+// Generates a JSON dump of the qualification rankings, primarily for use by the rankings display.
 func (web *Web) rankingsApiHandler(w http.ResponseWriter, r *http.Request) {
 	rankings, err := web.arena.Database.GetAllRankings()
 	if err != nil {
@@ -210,4 +225,89 @@ func (web *Web) teamAvatarsApiHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.ServeFile(w, r, avatarPath)
+}
+
+func (web *Web) bracketSvgApiHandler(w http.ResponseWriter, r *http.Request) {
+	var activeMatch *model.Match
+	showTemporaryConnectors := false
+	if activeMatchValue, ok := r.URL.Query()["activeMatch"]; ok {
+		if activeMatchValue[0] == "current" {
+			activeMatch = web.arena.CurrentMatch
+		} else if activeMatchValue[0] == "saved" {
+			activeMatch = web.arena.SavedMatch
+			showTemporaryConnectors = true
+		}
+	}
+
+	w.Header().Set("Content-Type", "image/svg+xml")
+	if err := web.generateBracketSvg(w, activeMatch, showTemporaryConnectors); err != nil {
+		handleWebErr(w, err)
+		return
+	}
+}
+
+func (web *Web) generateBracketSvg(w io.Writer, activeMatch *model.Match, showTemporaryConnectors bool) error {
+	alliances, err := web.arena.Database.GetAllAlliances()
+	if err != nil {
+		return err
+	}
+
+	matchups := make(map[string]*allianceMatchup)
+	if web.arena.PlayoffBracket != nil {
+		for _, matchup := range web.arena.PlayoffBracket.GetAllMatchups() {
+			allianceMatchup := allianceMatchup{
+				Round:              matchup.Round,
+				Group:              matchup.Group,
+				DisplayName:        matchup.LongDisplayName(),
+				RedAllianceSource:  matchup.RedAllianceSourceDisplayName(),
+				BlueAllianceSource: matchup.BlueAllianceSourceDisplayName(),
+				IsComplete:         matchup.IsComplete(),
+			}
+			if matchup.RedAllianceId > 0 {
+				if len(alliances) > 0 {
+					allianceMatchup.RedAlliance = &alliances[matchup.RedAllianceId-1]
+				} else {
+					allianceMatchup.RedAlliance = &model.Alliance{Id: matchup.RedAllianceId}
+				}
+			}
+			if matchup.BlueAllianceId > 0 {
+				if len(alliances) > 0 {
+					allianceMatchup.BlueAlliance = &alliances[matchup.BlueAllianceId-1]
+				} else {
+					allianceMatchup.BlueAlliance = &model.Alliance{Id: matchup.BlueAllianceId}
+				}
+			}
+			if activeMatch != nil {
+				allianceMatchup.IsActive = activeMatch.ElimRound == matchup.Round &&
+					activeMatch.ElimGroup == matchup.Group
+			}
+			allianceMatchup.SeriesLeader, allianceMatchup.SeriesStatus = matchup.StatusText()
+			matchups[fmt.Sprintf("%d_%d", matchup.Round, matchup.Group)] = &allianceMatchup
+		}
+	}
+
+	bracketType := "double"
+	numAlliances := web.arena.EventSettings.NumElimAlliances
+	if web.arena.EventSettings.ElimType == "single" {
+		if numAlliances > 8 {
+			bracketType = "16"
+		} else if numAlliances > 4 {
+			bracketType = "8"
+		} else if numAlliances > 2 {
+			bracketType = "4"
+		} else {
+			bracketType = "2"
+		}
+	}
+
+	template, err := web.parseFiles("templates/bracket.svg")
+	if err != nil {
+		return err
+	}
+	data := struct {
+		BracketType             string
+		Matchups                map[string]*allianceMatchup
+		ShowTemporaryConnectors bool
+	}{bracketType, matchups, showTemporaryConnectors}
+	return template.ExecuteTemplate(w, "bracket", data)
 }

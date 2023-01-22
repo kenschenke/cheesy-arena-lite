@@ -10,6 +10,7 @@ import "github.com/Team254/cheesy-arena-lite/game"
 type EventSettings struct {
 	Id                          int `db:"id"`
 	Name                        string
+	ElimType                    string
 	NumElimAlliances            int
 	SelectionRound2Order        string
 	SelectionRound3Order        string
@@ -41,8 +42,8 @@ type EventSettings struct {
 }
 
 func (database *Database) GetEventSettings() (*EventSettings, error) {
-	var allEventSettings []EventSettings
-	if err := database.eventSettingsTable.getAll(&allEventSettings); err != nil {
+	allEventSettings, err := database.eventSettingsTable.getAll()
+	if err != nil {
 		return nil, err
 	}
 	if len(allEventSettings) == 1 {
@@ -52,6 +53,7 @@ func (database *Database) GetEventSettings() (*EventSettings, error) {
 	// Database record doesn't exist yet; create it now.
 	eventSettings := EventSettings{
 		Name:                        "Untitled Event",
+		ElimType:                    "single",
 		NumElimAlliances:            8,
 		SelectionRound2Order:        "L",
 		SelectionRound3Order:        "",

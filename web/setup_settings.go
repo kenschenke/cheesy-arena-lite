@@ -41,10 +41,16 @@ func (web *Web) settingsPostHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	previousAdminPassword := eventSettings.AdminPassword
 
-	numAlliances, _ := strconv.Atoi(r.PostFormValue("numElimAlliances"))
-	if numAlliances < 2 || numAlliances > 16 {
-		web.renderSettings(w, r, "Number of alliances must be between 2 and 16.")
-		return
+	eventSettings.ElimType = r.PostFormValue("elimType")
+	numAlliances := 0
+	if eventSettings.ElimType == "double" {
+		numAlliances = 8
+	} else {
+		numAlliances, _ = strconv.Atoi(r.PostFormValue("numElimAlliances"))
+		if numAlliances < 2 || numAlliances > 16 {
+			web.renderSettings(w, r, "Number of alliances must be between 2 and 16.")
+			return
+		}
 	}
 
 	eventSettings.NumElimAlliances = numAlliances
@@ -217,11 +223,14 @@ func (web *Web) clearDbHandler(w http.ResponseWriter, r *http.Request) {
 		handleWebErr(w, err)
 		return
 	}
-	err = web.arena.Database.TruncateAllianceTeams()
+	err = web.arena.Database.TruncateAlliances()
 	if err != nil {
 		handleWebErr(w, err)
 		return
 	}
+	web.arena.AllianceSelectionAlliances = []model.Alliance{}
+	cachedRankedTeams = []*RankedTeam{}
+
 	http.Redirect(w, r, "/setup/settings", 303)
 }
 
